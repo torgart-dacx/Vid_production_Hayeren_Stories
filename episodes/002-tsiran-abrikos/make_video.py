@@ -849,9 +849,9 @@ def setup(lang, work):
         subs.append(dict(rgb=rgb, a=a, x=36 - pd, y=H - 34 - h - pd, t0=starts[i], t1=starts[i] + len(y) / tts_espeak.SR))
 
     # плашка слова
-    wf_, tf_ = fnt(104, True), fnt(38)
-    spec = [("Ծիրան", wf_, (96, 58, 100, 255), 128), (ui["translit"], tf_, (166, 98, 84, 255), 48)]
-    (wrgb, wa), (pd, h) = text_card(spec, 360, pad=24, radius=34, fill=170)
+    wf_, tf_ = fnt(84, True), fnt(38)
+    spec = [("Ծիրան", wf_, (96, 58, 100, 255), 112), (ui["translit"], tf_, (166, 98, 84, 255), 48)]
+    (wrgb, wa), (pd, h) = text_card(spec, 330, pad=24, radius=34, fill=170)
     wordcard = dict(rgb=wrgb, a=wa, x=40 - pd, y=60 - pd)
 
     # плашки глав
@@ -978,7 +978,7 @@ def setup(lang, work):
 BG_KIND = ["mountain", "parchment", "theater", "light", "mountain", "mountain"]
 PANS = {0: (-0.9, -0.1), 4: (0.9, 0.1), 5: (0.0, 0.5)}  # «камера»: панорама по ходу главы
 RANGES = dict(far=60, ararat=90, mid=120, near=140, fg=150)
-CW = 1.0  # длительность перекрёстного перехода фонов
+CW = 0.7  # длительность перекрёстного перехода фонов
 
 
 def blit(img, rgb, a, x, y, k=1.0):

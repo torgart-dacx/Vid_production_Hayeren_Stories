@@ -966,7 +966,7 @@ def setup(lang, work):
 BG_KIND = ["mountain", "parchment", "theater", "light", "mountain", "mountain"]
 PANS = {0: (-0.9, -0.1), 4: (0.9, 0.1), 5: (0.0, 0.5)}  # «камера»: панорама по ходу главы
 RANGES = dict(far=60, ararat=90, mid=120, near=140, fg=150)
-CW = 1.0  # длительность перекрёстного перехода фонов
+CW = 0.7  # длительность перекрёстного перехода фонов
 
 
 def blit(img, rgb, a, x, y, k=1.0):
