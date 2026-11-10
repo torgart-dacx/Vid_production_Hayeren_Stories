@@ -80,6 +80,36 @@ LINES = {
         (5, "Suscríbete al canal: aún quedan muchas palabras, letras y datos armenios."),
     ],
 }
+LINES_SHORT = {
+    "ru": [
+        (0, "Здравствуйте! Я — гранат. Я родом из-под Арарата."),
+        (1, "По-армянски я — «нур». В рукописях это слово живёт больше полутора тысяч лет."),
+        (2, "В восемнадцатом веке жил поэт Саят-Нова: он пел о любви под звуки кяманчи."),
+        (2, "Почти через двести лет режиссёр Параджанов снял о нём фильм «Цвет граната»."),
+        (2, "Красный сок растекается по белой ткани — шедевр мирового кино."),
+        (3, "С тех пор я — знак удачи: много зёрен — много счастья."),
+        (4, "Осенью в Армении праздники граната: с песнями, танцами и вином."),
+        (4, "Слово, как гранат: внутри — много историй. Нужно лишь открыть."),
+        (5, "Хорошо, когда знаешь."),
+        (5, "Подписывайтесь на канал — впереди ещё много армянских слов!"),
+    ],
+    "es": [
+        (0, "¡Hola! Soy la granada. Vengo de las laderas del Ararat."),
+        (1, "En armenio me llamo «nur». En los manuscritos, la palabra vive hace más de mil quinientos años."),
+        (2, "En el siglo dieciocho, el poeta Sayat-Nova cantaba al amor con su kemancha."),
+        (2, "Casi doscientos años después, Parajánov filmó «El color de la granada»."),
+        (2, "Jugo rojo sobre tela blanca: una obra maestra del cine."),
+        (3, "Desde entonces soy símbolo de buena suerte: muchos granos, mucha felicidad."),
+        (4, "En otoño, Armenia celebra la granada con canciones, bailes y vino."),
+        (4, "Una palabra es como una granada: dentro hay muchas historias."),
+        (5, "Qué bueno es saberlo."),
+        (5, "¡Suscríbete! Aún quedan muchas palabras armenias."),
+    ],
+}
+SHORT = "--short" in sys.argv
+SPEED = float(os.environ.get("HAYEREN_SPEED", "1.5" if SHORT else "1.0"))
+if SHORT:
+    LINES = LINES_SHORT
 UI = {
     "ru": dict(chap=CHAPTERS_RU, translit="нур", film="1969 · «Цвет граната»", fest="Осень · праздник граната",
                slogan="Хорошо, когда знаешь", sub="Подписаться", tag="армянские слова · буквы · факты",
@@ -192,11 +222,11 @@ def soften(im, r):
     return np.clip(rgb, 0, 255).astype(np.float32), al
 
 
-def sprite(w, h, fn, blur=1.0):
+def sprite(w, h, fn, blur=1.0, scale=1.0):
     k = 2
     im = Image.new("RGBA", (w * k, h * k), (0, 0, 0, 0))
     fn(ImageDraw.Draw(im), k)
-    im = im.resize((w, h), Image.LANCZOS)
+    im = im.resize((int(round(w * scale)), int(round(h * scale))), Image.LANCZOS)
     return soften(im, blur)
 
 
@@ -210,11 +240,14 @@ def lerpc(a, b, f):
 
 # --- говорящий гранат -------------------------------------------------------
 HEAD_W, HEAD_H = 360, 400
+MS = 0.8  # масштаб маскота
 HCX, HCY, HR = 180, 238, 140
 
 
 def d_head(d, k):
     d.ellipse([(HCX - 130) * k, 372 * k, (HCX + 130) * k, 398 * k], fill=(90, 60, 80, 70))
+    d.ellipse([96 * k, 360 * k, 168 * k, 392 * k], fill=(140, 34, 56, 255))
+    d.ellipse([192 * k, 360 * k, 264 * k, 392 * k], fill=(140, 34, 56, 255))
     for i in range(70):
         f = i / 69
         col = lerpc((160, 40, 62), (226, 96, 100), f)
@@ -266,8 +299,8 @@ def make_face(level, eyes):
         if hh > 16:
             d.ellipse([(cx - ww * 0.30) * k, (cy + hh * 0.02) * k, (cx + ww * 0.30) * k, (cy + hh / 2 - 1.5) * k],
                       fill=(236, 116, 126, 255))
-    im = im.resize((FACE_W, FACE_H), Image.LANCZOS)
-    return soften(im, 0.7)
+    im = im.resize((int(FACE_W * MS), int(FACE_H * MS)), Image.LANCZOS)
+    return soften(im, 0.6)
 
 
 # --- реквизит сцен ----------------------------------------------------------
@@ -348,6 +381,92 @@ def make_petal(ang):
     im = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
     ImageDraw.Draw(im).ellipse([8, 14, 32, 26], fill=(255, 220, 230, 255))
     return soften(im.rotate(ang, resample=Image.BICUBIC), 1.0)
+
+
+
+# --- руки маскота -----------------------------------------------------------
+ARM_L = 112  # половина холста руки (в «дизайн»-единицах); центр холста = плечо
+
+
+def make_arm_variants():
+    k = 2
+    size = 2 * ARM_L
+    base = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
+    d = ImageDraw.Draw(base)
+    c = ARM_L * k
+    d.rounded_rectangle([c - 11 * k, c - 11 * k, c + 11 * k, c + 88 * k], radius=11 * k, fill=(172, 48, 72, 255))
+    circ(d, k, ARM_L, ARM_L, 13, (172, 48, 72, 255))
+    circ(d, k, ARM_L, ARM_L + 97, 16, (250, 190, 168, 255))
+    circ(d, k, ARM_L - 4, ARM_L + 92, 5, (255, 226, 210, 255))
+    right, left = [], []
+    for ang in range(0, 181, 6):
+        im = base.rotate(ang, resample=Image.BICUBIC, center=(c, c))
+        im = im.resize((int(size * MS), int(size * MS)), Image.LANCZOS)
+        rgb, a = soften(im, 0.6)
+        right.append((rgb, a))
+        left.append((rgb[:, ::-1].copy(), a[:, ::-1].copy()))
+    return right, left
+
+
+# --- фоны глав --------------------------------------------------------------
+def soft_disc(r, power=0.7):
+    n = int(r * 2 + 4)
+    yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
+    d = np.hypot(xx - n / 2, yy - n / 2) / r
+    return (np.clip(1 - d ** 2, 0, 1) ** power).astype(np.float32)
+
+
+def make_bg_assets():
+    A = {}
+    # пергамент + армянские буквы
+    g = (np.arange(H, dtype=np.float32) / H)[:, None, None]
+    base = arr((248, 238, 214)) * (1 - g) + arr((230, 204, 170)) * g
+    base = np.repeat(base, W, axis=1)
+    v = np.hypot((XX - W / 2) / (W * 0.62), (YY - H / 2) / (H * 0.7))
+    base = base * (1 - 0.20 * np.clip(v, 0, 1.4) ** 2)[..., None]
+    m = Image.new("L", (W, H), 0)
+    dm = ImageDraw.Draw(m)
+    dm.rounded_rectangle([26, 26, W - 26, H - 26], radius=34, outline=150, width=3)
+    dm.rounded_rectangle([42, 42, W - 42, H - 42], radius=26, outline=90, width=2)
+    mm = (np.asarray(m.filter(ImageFilter.GaussianBlur(0.8)), np.float32) / 255.0)[..., None]
+    A["parch"] = base * (1 - mm) + arr((170, 120, 90)) * mm
+    rr = np.random.default_rng(31)
+    letters = []
+    for ch in "ԱԲԳԴԵԶԷԹԺԻԼԽ":
+        size = int(rr.integers(150, 240))
+        f = ImageFont.truetype(FONTB, size)
+        im = Image.new("L", (size + 40, int(size * 1.5)), 0)
+        ImageDraw.Draw(im).text((20, 10), ch, font=f, fill=255)
+        a = np.asarray(im.filter(ImageFilter.GaussianBlur(1.2)), np.float32) / 255.0 * 0.085
+        letters.append(dict(a=a, x=float(rr.uniform(-60, W - 100)), y=float(rr.uniform(0, H + 200)),
+                            sp=float(rr.uniform(6, 14)), sw=float(rr.uniform(8, 24)), ph=float(rr.uniform(0, 6.28))))
+    A["letters"] = letters
+    # театр: занавес + прожектор
+    x = XX[0:1, :]
+    fold = 0.5 + 0.5 * np.sin(x * 0.05 + 1.4 * np.sin(x * 0.011))
+    cur = arr((92, 44, 78)) * (0.62 + 0.38 * fold[..., None])
+    cur = np.repeat(cur, H, axis=0)
+    cur = cur * (1 - 0.28 * np.clip(YY / H, 0, 1) ** 2)[..., None]
+    floor = (YY > 610)[..., None].astype(np.float32)
+    wood = arr((74, 40, 62)) * (0.8 + 0.2 * np.sin(XX * 0.03)[..., None])
+    A["theater_base"] = (cur * (1 - floor) + wood * floor).astype(np.float32)
+    cone = np.exp(-(((XX - 700) / (110 + 0.5 * YY)) ** 2)) * (1 - np.clip(YY / 760.0, 0, 1)) ** 0.5
+    A["theater_cone"] = (cone[..., None] * arr((255, 232, 196)) * 0.55).astype(np.float32)
+    A["dust"] = soft_disc(5, 1.0) * 0.6
+    A["dust_p"] = [dict(x=float(rr.uniform(430, 980)), y=float(rr.uniform(0, H)), sp=float(rr.uniform(6, 18)),
+                        sw=float(rr.uniform(6, 20)), ph=float(rr.uniform(0, 6.28))) for _ in range(30)]
+    # боке (глава «Связка») и огни праздника
+    top, bot = arr((255, 228, 206)), arr((242, 160, 172))
+    b = np.repeat(top * (1 - g) + bot * g, W, axis=1)
+    glow = np.exp(-(((XX - 760) / 520.0) ** 2 + ((YY - 260) / 330.0) ** 2))[..., None]
+    A["bokeh_base"] = (b * (1 - 0.35 * glow) + arr((255, 244, 224)) * 0.35 * glow).astype(np.float32)
+    A["bokeh_spr"] = [soft_disc(r, 0.55) * al for r, al in ((26, 0.34), (44, 0.26), (70, 0.2))]
+    cols = [arr((255, 236, 200)), arr((255, 190, 190)), arr((255, 214, 150)), arr((236, 176, 224))]
+    A["bokeh_p"] = [dict(k=int(rr.integers(0, 3)), c=cols[int(rr.integers(0, 4))], x=float(rr.uniform(0, W)),
+                         y=float(rr.uniform(0, H + 200)), sp=float(rr.uniform(8, 26)), sw=float(rr.uniform(10, 40)),
+                         ph=float(rr.uniform(0, 6.28))) for _ in range(26)]
+    A["lantern"] = soft_disc(30, 0.6) * 0.65
+    return A
 
 
 # --------------------------------------------------------------------------
@@ -492,20 +611,20 @@ def build_timeline(lang, work):
             y = np.interp(np.arange(0, len(y), sr / tts_espeak.SR), np.arange(len(y)), y).astype(np.float32)
         else:
             if tts_piper.available(lang):
-                y = tts_piper.soften(tts_piper.synth(text, lang))
+                y = tts_piper.soften(tts_piper.synth(text, lang, 1.14 / SPEED))
             else:  # запасной синтетический голос
-                x = tts_espeak.synth(text, ui["voice"], ui["wpm"], ui["pitch"])
+                x = tts_espeak.synth(text, ui["voice"], min(int(ui["wpm"] * SPEED), 340), ui["pitch"])
                 y = tts_espeak.soften(x)
         segs.append((ch, text, y))
-    t = 1.8
+    t = 1.2 if SHORT else 1.8
     starts, prev = [], None
     for ch, text, y in segs:
         if prev is not None:
-            t += 1.1 if ch != prev else 0.45
+            t += (0.7 if ch != prev else 0.28) if SHORT else (1.1 if ch != prev else 0.45)
         starts.append(t)
         t += len(y) / tts_espeak.SR
         prev = ch
-    dur = t + 3.2
+    dur = t + (2.2 if SHORT else 3.2)
     return segs, starts, dur
 
 
@@ -657,8 +776,10 @@ def setup(lang, work):
 
     # лицо: 12 уровней × 3 состояния глаз
     faces = {(lv, e): make_face(lv, e) for lv in range(12) for e in range(3)}
+    arms_r, arms_l = make_arm_variants()
+    assets = make_bg_assets()
     # реквизит
-    head = sprite(HEAD_W, HEAD_H, d_head, 1.0)
+    head = sprite(HEAD_W, HEAD_H, d_head, 0.8, MS)
     tree = sprite(200, 250, d_tree, 1.0)
     film_base = sprite(FILM_W, FILM_H, d_film, 1.0)
     poet = sprite(FILM_W, FILM_H, d_poet, 0.9)
@@ -688,6 +809,10 @@ def setup(lang, work):
     seeds = [dict(x=float(RNG.uniform(-60, 60)), ph=float(RNG.uniform(0, 1)), sp=float(RNG.uniform(0.10, 0.2)),
                   dx=float(RNG.uniform(-260, 120)), am=float(RNG.uniform(10, 30))) for _ in range(26)]
 
+    slog_i = next(i for i, (ch, _, _) in enumerate(segs) if ch == 5)
+    btn_i = len(segs) - 1
+    speak_s = np.convolve(mouth / 11.0, np.ones(7) / 7, mode="same")
+    G.update(dict(slog_i=slog_i, btn_i=btn_i, speak_s=speak_s, arms_r=arms_r, arms_l=arms_l, assets=assets))
     G.update(dict(lang=lang, ui=ui, dur=dur, N=n, SC=SC, subs=subs, wordcard=wordcard, chips=chips, bubbles=bubbles,
                   film=(film_rgb, film_a, fw_, fp_), fest=(fest_rgb, fest_a, fsw_, fsp_), slogan=slogan, button=button,
                   faces=faces, head=head, tree=tree, film_base=film_base, poet=poet, seed=seed, garland=garland,
@@ -698,21 +823,10 @@ def setup(lang, work):
 # --------------------------------------------------------------------------
 # КАДР
 # --------------------------------------------------------------------------
-def pal_at(t):
-    SC = G["SC"]
-    i = next((k for k, s in enumerate(SC) if s["t0"] <= t < s["t1"]), len(SC) - 1)
-    cw = 1.2
-
-    def P(k):
-        return PAL[SC[k]["pal"]]
-
-    def blend(a, b, k):
-        return {key: mix(a[key], b[key], k) for key in a}
-    if i < len(SC) - 1 and t > SC[i]["t1"] - cw:
-        return blend(P(i), P(i + 1), float(ss((t - (SC[i]["t1"] - cw)) / (2 * cw))))
-    if i > 0 and t < SC[i]["t0"] + cw:
-        return blend(P(i - 1), P(i), float(ss((t - (SC[i]["t0"] - cw)) / (2 * cw))))
-    return P(i)
+BG_KIND = ["mountain", "parchment", "theater", "bokeh", "mountain", "mountain"]
+PANS = {0: (-0.9, -0.1), 4: (0.9, 0.1), 5: (0.0, 0.5)}  # «камера»: панорама по ходу главы
+RANGES = dict(far=60, ararat=90, mid=120, near=140, fg=150)
+CW = 1.0  # длительность перекрёстного перехода фонов
 
 
 def blit(img, rgb, a, x, y, k=1.0):
@@ -727,6 +841,7 @@ def blit(img, rgb, a, x, y, k=1.0):
 
 
 def layer(img, mask, color, shift):
+    shift = float(np.clip(shift, 1.0, 298.5))
     o = int(shift)
     f = shift - o
     a = (mask[:, o:o + W] * (1 - f) + mask[:, o + 1:o + 1 + W] * f)[..., None]
@@ -737,46 +852,186 @@ def scene_vis(sc, t, fin=1.2, fout=1.0):
     return float(ss((t - sc["t0"] - 0.2) / fin) * ss((sc["t1"] - t) / fout))
 
 
-def frame(i):
-    t = i / FPS
+def bg_mountain(si, t):
     SC = G["SC"]
-    DUR = G["dur"]
-    cur = next((k for k, s in enumerate(SC) if s["t0"] <= t < s["t1"]), 5)
-    p = pal_at(t)
+    sc = SC[si]
+    p = PAL[sc["pal"]]
     top, bot = p["top"], p["bot"]
+    prog = float(np.clip((t - sc["t0"]) / max(sc["t1"] - sc["t0"], 1e-3), 0, 1))
+    a0, a1 = PANS.get(si, (0.0, 0.0))
+    pan = a0 + (a1 - a0) * prog
+    sh = lambda r: 150 + r * pan
     img = np.repeat(top * (1 - GRAD) + bot * GRAD, W, axis=1).astype(np.float32)
-
-    sx, sy_ = p["sun"][0] + 20 * math.sin(t / 9.0), p["sun"][1]
+    sx, sy_ = p["sun"][0] + 20 * math.sin(t / 9.0) - 30 * pan, p["sun"][1]
     d2 = (XX - sx) ** 2 + (YY - sy_) ** 2
     glow = np.clip(0.55 * np.exp(-d2 / (2 * 200 ** 2)) + 0.95 * np.exp(-d2 / (2 * 36 ** 2)), 0, 1)[..., None]
     img = img * (1 - glow * 0.75) + p["suncol"] * glow * 0.75
-
-    pr = t / DUR - 0.5
     hz = lambda base, k: mix(arr(base), bot, k)
-    layer(img, M_FAR, hz((176, 176, 212), 0.45), 150 + 20 * pr)
-    layer(img, M_ARARAT, hz((142, 146, 192), 0.30), 150 + 14 * pr)
-    layer(img, M_SHADE * 0.30, hz((92, 96, 150), 0.25), 150 + 14 * pr)
-    layer(img, M_SNOW, mix(arr((255, 252, 255)), bot, 0.18), 150 + 14 * pr)
-
+    layer(img, M_FAR, hz((176, 176, 212), 0.45), sh(RANGES["far"]))
+    layer(img, M_ARARAT, hz((142, 146, 192), 0.30), sh(RANGES["ararat"]))
+    layer(img, M_SHADE * 0.30, hz((92, 96, 150), 0.25), sh(RANGES["ararat"]))
+    layer(img, M_SNOW, mix(arr((255, 252, 255)), bot, 0.18), sh(RANGES["ararat"]))
     cc = mix(arr((255, 255, 255)), bot, 0.22)
     for spr, cy, sp, x0 in G["clouds"]:
         cx = int((x0 + sp * t + 300) % (W + 700) - 440)
         blit(img, cc, spr, cx, cy + int(4 * math.sin(t / 5 + cy)))
     mist = MIST[..., None]
     img = img * (1 - mist) + mix(arr((255, 255, 255)), bot, 0.5) * mist
-    layer(img, M_MID, hz((150, 184, 170), 0.30), 150 + 40 * pr)
-    layer(img, M_NEAR, hz((186, 192, 130), 0.14), 150 + 70 * pr)
-
-    # --- реквизит по главам
-    v0 = scene_vis(SC[0], t)
-    if v0 > 0.002:  # гранатовые деревья
+    layer(img, M_MID, hz((150, 184, 170), 0.30), sh(RANGES["mid"]))
+    layer(img, M_NEAR, hz((186, 192, 130), 0.14), sh(RANGES["near"]))
+    if si == 0:  # гранатовые деревья
         rgb, a = G["tree"]
         for j, (x, y) in enumerate(((20, 372), (230, 392), (440, 366))):
-            blit(img, rgb, a, x + int(3 * math.sin(t * 0.7 + j)), y + int((1 - v0) * 16), v0)
+            blit(img, rgb, a, int(x - pan * 70 + 3 * math.sin(t * 0.7 + j)), y)
+    layer(img, M_FG, hz((156, 176, 114), 0.06), sh(RANGES["fg"]))
+    if si == 4:  # праздничная гирлянда и фонари
+        rgb, a = G["garland"]
+        blit(img, rgb, a, int(500 + 5 * math.sin(t * 0.8)), 0)
+        A = G["assets"]
+        for j, x in enumerate((560, 700, 860, 1010, 1140)):
+            fl = 0.75 + 0.25 * math.sin(t * 3 + j * 1.7)
+            blit(img, arr((255, 214, 140)), A["lantern"], x - 30, 120 + 18 * (j % 2), fl)
+        frgb, fa, fw_, fp_ = G["fest"]
+        blit(img, frgb, fa, 560 - fp_, 200, float(ss((t - sc["t0"] - 1.0) / 1.0)))
+    return img
+
+
+def bg_parchment(t):
+    A = G["assets"]
+    img = A["parch"].copy()
+    for L in A["letters"]:
+        y = (L["y"] - L["sp"] * t) % (H + 320) - 160
+        blit(img, arr((110, 60, 100)), L["a"], int(L["x"] + L["sw"] * math.sin(t * 0.4 + L["ph"])), int(y))
+    return img
+
+
+def bg_theater(t):
+    A = G["assets"]
+    img = A["theater_base"] + A["theater_cone"] * (0.94 + 0.06 * math.sin(t * 6.3))
+    for d in A["dust_p"]:
+        y = (d["y"] - d["sp"] * t) % (H + 40) - 20
+        blit(img, arr((255, 240, 210)), A["dust"], int(d["x"] + d["sw"] * math.sin(t * 0.6 + d["ph"])), int(y),
+             0.7 + 0.3 * math.sin(t * 2 + d["ph"]))
+    return img
+
+
+def bg_bokeh(t):
+    A = G["assets"]
+    img = A["bokeh_base"].copy()
+    for b in A["bokeh_p"]:
+        spr = A["bokeh_spr"][b["k"]]
+        y = (b["y"] - b["sp"] * t) % (H + 240) - 120
+        x = b["x"] + b["sw"] * math.sin(t * 0.5 + b["ph"])
+        blit(img, b["c"], spr, int(x - spr.shape[1] / 2), int(y - spr.shape[0] / 2), 0.8 + 0.2 * math.sin(t + b["ph"]))
+    return img
+
+
+def render_bg(i, t):
+    k = BG_KIND[i]
+    return bg_mountain(i, t) if k == "mountain" else {"parchment": bg_parchment, "theater": bg_theater,
+                                                      "bokeh": bg_bokeh}[k](t)
+
+
+def bg_at(t):
+    SC = G["SC"]
+    i = next((k for k, s in enumerate(SC) if s["t0"] <= t < s["t1"]), len(SC) - 1)
+    if i < len(SC) - 1 and t > SC[i]["t1"] - CW:
+        s_ = float(ss((t - (SC[i]["t1"] - CW)) / (2 * CW)))
+        return mix(render_bg(i, t), render_bg(i + 1, t), s_)
+    if i > 0 and t < SC[i]["t0"] + CW:
+        s_ = float(ss((t - (SC[i]["t0"] - CW)) / (2 * CW)))
+        return mix(render_bg(i - 1, t), render_bg(i, t), s_)
+    return render_bg(i, t)
+
+
+# --- маскот: перемещение и жесты --------------------------------------------
+def win(t, a, b, r=0.35):
+    return float(ss((t - a) / r) * ss((b - t) / r))
+
+
+def mascot_x(t):
+    SC = G["SC"]
+    kf = [(0.0, 1500), (2.2, 1050), (SC[1]["t0"] + 0.3, 1050), (SC[1]["t0"] + 2.6, 910),
+          (SC[2]["t0"] + 0.2, 910), (SC[2]["t0"] + 2.4, 1130), (SC[3]["t0"] + 0.3, 1130),
+          (SC[3]["t0"] + 2.6, 920), (SC[4]["t0"] + 0.5, 920), (SC[4]["t0"] + 1.6, 1010)]
+    t4 = SC[4]["t0"] + 1.6
+    if t < t4:
+        for (ta, xa), (tb, xb) in zip(kf, kf[1:]):
+            if t <= tb:
+                return xa + (xb - xa) * float(ss((t - ta) / max(tb - ta, 1e-6)))
+        return kf[-1][1]
+    dance = lambda tt: 1010 + 125 * math.sin(2 * math.pi * (tt - t4) / 5.5)
+    t5 = SC[5]["t0"]
+    if t < t5:
+        return dance(t)
+    return mix(dance(t5), 1020.0, float(ss((t - t5) / 1.4)))
+
+
+def mascot_arms(t, speak):
+    SC, st, sd = G["SC"], G["starts"], G["segs_dur"]
+    sl, bt = G["slog_i"], G["btn_i"]
+    sp = 2 * math.pi
+    L = 20 + 6 * math.sin(sp * 0.45 * t + 1) + 24 * speak * math.sin(sp * 1.4 * t)
+    R = 20 + 6 * math.sin(sp * 0.45 * t) + 20 * speak * math.sin(sp * 1.1 * t + 1.3)
+    w = win(t, 1.0, 4.4)  # приветствие
+    R += w * (138 + 30 * math.sin(sp * 2.6 * t) - R)
+    w = win(t, SC[1]["t0"] + 1.3, SC[1]["t0"] + 5.8)  # указывает на буквы
+    L += w * (100 + 6 * math.sin(sp * 1.2 * t) - L)
+    w = win(t, SC[2]["t0"] + 0.6, SC[2]["t1"] - 0.6)  # указывает на плёнку
+    L += w * (88 + 7 * math.sin(sp * 1.2 * t) - L)
+    w = win(t, SC[4]["t0"] + 0.6, SC[5]["t0"])  # танец
+    L += w * (95 + 45 * math.sin(sp * 1.3 * t) - L)
+    R += w * (95 + 45 * math.sin(sp * 1.3 * t + math.pi) - R)
+    w = win(t, st[sl] - 0.1, st[sl] + sd[sl] + 0.3)  # ликует на слогане
+    L += w * (150 + 20 * math.sin(sp * 2.2 * t) - L)
+    R += w * (150 + 20 * math.sin(sp * 2.2 * t + 0.8) - R)
+    w = win(t, st[bt] - 0.1, st[bt] + sd[bt] - 0.8)  # зовёт подписаться
+    R += w * (138 + 30 * math.sin(sp * 2.6 * t) - R)
+    L += w * (98 - L)
+    return float(np.clip(L, 0, 180)), float(np.clip(R, 0, 180))
+
+
+def draw_mascot(img, t, i):
+    SC = G["SC"]
+    speak = float(G["speak_s"][min(i, G["N"] - 1)])
+    x = mascot_x(t)
+    vx = abs(mascot_x(t + 0.05) - mascot_x(t - 0.05)) / 0.1
+    dancing = SC[4]["t0"] + 1.6 < t < SC[5]["t0"]
+    amp = (20 if dancing else min(vx / 40.0, 1.0) * 20) + 5 * speak + 2
+    hop = amp * abs(math.sin(2 * math.pi * 1.15 * t))
+    hv = float(ss(t / 0.5))
+    hw, hh = int(HEAD_W * MS), int(HEAD_H * MS)
+    hx, hy = int(x - hw / 2), int(700 - hh - hop)
+    hrgb, ha = G["head"]
+    blit(img, hrgb, ha, hx, hy, hv)
+    lvl = int(G["mouth"][min(i, G["N"] - 1)])
+    eyes = 1 if ((t % 3.6) < 0.14 and t > 0.8) else 0
+    sl = G["slog_i"]
+    if G["starts"][sl] + 0.5 < t < G["starts"][sl] + 1.3:
+        eyes = 2
+    frgb, fa = G["faces"][(lvl, eyes)]
+    blit(img, frgb, fa, hx + int(FACE_X * MS), hy + int((FACE_Y + 1.5 * speak) * MS), hv)
+    aL, aR = mascot_arms(t, speak)
+    rgbL, aLa = G["arms_l"][int(round(aL / 6))]
+    rgbR, aRa = G["arms_r"][int(round(aR / 6))]
+    half = int(ARM_L * MS)
+    blit(img, rgbL, aLa, hx + int(62 * MS) - half, hy + int(258 * MS) - half, hv)
+    blit(img, rgbR, aRa, hx + int(298 * MS) - half, hy + int(258 * MS) - half, hv)
+    return hx, hy, hw
+
+
+def frame(i):
+    t = i / FPS
+    SC = G["SC"]
+    DUR = G["dur"]
+    cur = next((k for k, s in enumerate(SC) if s["t0"] <= t < s["t1"]), 5)
+    img = bg_at(t).astype(np.float32)
+
+    # --- реквизит глав
     v1 = scene_vis(SC[1], t)
     if v1 > 0.002:  # буквы-пузыри
         for j, b in enumerate(G["bubbles"]):
-            k = float(ss((t - SC[1]["t0"] - 1.4 - j * 0.9) / 0.7)) * v1
+            k = float(ss((t - SC[1]["t0"] - 1.0 - j * 0.7) / 0.6)) * v1
             if k > 0.002:
                 blit(img, b["rgb"], b["a"], b["x"], int(b["y"] + (1 - k) * 22 + 6 * math.sin(t * 1.3 + j)), k)
     v2 = scene_vis(SC[2], t)
@@ -784,13 +1039,12 @@ def frame(i):
         fx, fy = 470, 100
         rgb, a = G["film_base"]
         blit(img, rgb, a, fx, fy, v2)
-        # пятно сока
-        pstain = float(np.clip((t - SC[2]["t0"] - 5.0) / 14.0, 0, 1)) * 0.82
+        pstain = float(np.clip((t - SC[2]["t0"] - 3.5) / 8.0, 0, 1)) * 0.82
         T = G["stain_T"]
         sa = ss((pstain - T) / 0.10) * 0.92
         sa = np.asarray(Image.fromarray((sa * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(2.2)), np.float32) / 255.0
-        sh, sw_ = sa.shape
-        col = np.empty((sh, sw_, 3), np.float32)
+        sh_, sw_ = sa.shape
+        col = np.empty((sh_, sw_, 3), np.float32)
         dark = ss((pstain - G["stain_R"]) / 0.9)[..., None]
         col[:] = mix(arr((214, 52, 72)), arr((150, 24, 54)), dark)
         blit(img, col, sa.astype(np.float32), fx + 22, fy + 36, v2)
@@ -798,31 +1052,9 @@ def frame(i):
         blit(img, rgb, a, fx, fy, v2)
         frgb, fa, fw_, fp_ = G["film"]
         blit(img, frgb, fa, fx + (FILM_W - fw_) // 2 - fp_, fy + FILM_H + 6, v2)
-    v4 = scene_vis(SC[4], t)
-    if v4 > 0.002:  # гирлянда
-        rgb, a = G["garland"]
-        blit(img, rgb, a, 500 + int(5 * math.sin(t * 0.8)), 0, v4)
-        frgb, fa, fw_, fp_ = G["fest"]
-        blit(img, frgb, fa, 560 - fp_, 150, v4 * float(ss((t - SC[4]["t0"] - 1.0) / 1.0)))
 
-    layer(img, M_FG, hz((156, 176, 114), 0.06), 150 + 110 * pr)
-
-    # --- говорящий гранат
-    hv = float(ss(t / 1.2))
-    lvl = int(G["mouth"][min(i, G["N"] - 1)])
-    speak = lvl / 11.0
-    bob = 5 * math.sin(2 * math.pi * t / 4.2) + 4 * speak
-    hx, hy = 905, 318 + int(bob) + int((1 - hv) * 30)
-    hrgb, ha = G["head"]
-    blit(img, hrgb, ha, hx, hy, hv)
-    blink_phase = (t % 3.6)
-    eyes = 1 if (blink_phase < 0.14 and t > 0.8) else 0
-    sc_slogan = SC[5]
-    ss_t = G["starts"][12]
-    if ss_t + 0.5 < t < ss_t + 1.3:  # подмигивание на слогане
-        eyes = 2
-    frgb, fa = G["faces"][(lvl, eyes)]
-    blit(img, frgb, fa, hx + FACE_X, hy + FACE_Y + int(1.5 * speak), hv)
+    # --- маскот
+    hx, hy, hw = draw_mascot(img, t, i)
 
     # семена из граната (главы 4–5)
     for ch in (3, 4):
@@ -831,17 +1063,16 @@ def frame(i):
             rgb, a = G["seed"]
             for s in G["seeds"][: (26 if ch == 3 else 14)]:
                 u = (t * s["sp"] + s["ph"]) % 1.0
-                sxp = hx + 150 + s["x"] + s["dx"] * u + s["am"] * math.sin(u * 9 + s["ph"] * 6)
+                sxp = hx + hw / 2 + s["x"] + s["dx"] * u + s["am"] * math.sin(u * 9 + s["ph"] * 6)
                 syp = hy + 40 - u * 380
                 blit(img, rgb, a, int(sxp), int(syp), vv * math.sin(math.pi * u) ** 0.6)
 
-    # --- слоган и кнопка (глава 6)
-    v5 = scene_vis(SC[5], t, fin=1.0, fout=1.4)
+    # --- слоган и кнопка
     sg = G["slogan"]
-    k5 = float(ss((t - G["starts"][12] + 0.2) / 0.9)) * float(ss((DUR - 1.6 - t) / 1.0))
+    k5 = float(ss((t - G["starts"][G["slog_i"]] + 0.2) / 0.9)) * float(ss((DUR - 1.4 - t) / 1.0))
     if k5 > 0.002:
         blit(img, sg["rgb"], sg["a"], sg["x"], int(sg["y"] + (1 - k5) * 14), k5)
-    kb = float(ss((t - G["starts"][13] + 0.3) / 0.8)) * float(ss((DUR - 1.6 - t) / 1.0))
+    kb = float(ss((t - G["starts"][G["btn_i"]] + 0.3) / 0.8)) * float(ss((DUR - 1.4 - t) / 1.0))
     if kb > 0.002:
         bt = G["button"]
         pulse = 1 + 0.03 * math.sin(t * 5)
@@ -849,13 +1080,12 @@ def frame(i):
 
     # --- плашка слова и глава
     if cur in (1, 2, 3, 4):
-        wk = scene_vis(SC[cur], t, fin=0.8, fout=0.6) if cur in (1, 4) else 1.0
         wk = float(ss((t - SC[1]["t0"] - 0.8) / 0.9)) * float(ss((SC[4]["t1"] - 0.2 - t) / 0.8))
         wc = G["wordcard"]
         blit(img, wc["rgb"], wc["a"], wc["x"], wc["y"] + int((1 - wk) * 10), wk)
     chip = G["chips"][cur]
     ck = float(ss((t - SC[cur]["t0"] - 0.3) / 0.7)) * float(ss((SC[cur]["t1"] - 0.1 - t) / 0.6)) if cur < 5 \
-        else float(ss((t - SC[cur]["t0"] - 0.3) / 0.7)) * float(ss((DUR - 1.8 - t) / 0.8))
+        else float(ss((t - SC[cur]["t0"] - 0.3) / 0.7)) * float(ss((DUR - 1.6 - t) / 0.8))
     blit(img, chip["rgb"], chip["a"], chip["x"], chip["y"], ck)
 
     # --- субтитры
@@ -871,14 +1101,15 @@ def frame(i):
         rgb, a = G["petal_rot"][int(t * 1.5 + j) % 4]
         blit(img, rgb, a, int(px), int(py), pt["a"])
 
-    f = float(ss(t / 1.0) * ss((DUR - t) / 1.8))
+    f = float(ss(t / 1.0) * ss((DUR - t) / 1.6))
     img = mix(arr((252, 246, 246)), img, f)
     img += NOISE
     return np.clip(img, 0, 255).astype(np.uint8).tobytes()
 
 
 def main():
-    lang, out, work = sys.argv[1], sys.argv[2], sys.argv[3]
+    args = [x for x in sys.argv[1:] if not x.startswith('--')]
+    lang, out, work = args[0], args[1], args[2]
     os.makedirs(work, exist_ok=True)
     setup(lang, work)
     n = G["N"]
