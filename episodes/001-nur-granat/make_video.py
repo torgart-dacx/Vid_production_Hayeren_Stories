@@ -238,69 +238,163 @@ def lerpc(a, b, f):
     return tuple(int(x * (1 - f) + y * f) for x, y in zip(a, b))
 
 
-# --- говорящий гранат -------------------------------------------------------
+# --- говорящий герой (3D-шейдинг) -------------------------------------------
 HEAD_W, HEAD_H = 360, 400
 MS = 0.8  # масштаб маскота
 HCX, HCY, HR = 180, 238, 140
-
-
-def d_head(d, k):
-    d.ellipse([(HCX - 130) * k, 372 * k, (HCX + 130) * k, 398 * k], fill=(90, 60, 80, 70))
-    d.ellipse([96 * k, 360 * k, 168 * k, 392 * k], fill=(140, 34, 56, 255))
-    d.ellipse([192 * k, 360 * k, 264 * k, 392 * k], fill=(140, 34, 56, 255))
-    for i in range(70):
-        f = i / 69
-        col = lerpc((160, 40, 62), (226, 96, 100), f)
-        circ(d, k, HCX - 18 * f, HCY - 18 * f, HR * (1 - f * 0.93), col + (255,))
-    for i in range(20):
-        f = i / 19
-        circ(d, k, 118 - 6 * f, 170 - 6 * f, 36 * (1 - f), lerpc((226, 96, 100), (246, 156, 148), f) + (255,))
-    d.polygon([(150 * k, 104 * k), (154 * k, 68 * k), (167 * k, 92 * k), (180 * k, 54 * k), (193 * k, 92 * k),
-               (206 * k, 68 * k), (210 * k, 104 * k)], fill=(150, 36, 58, 255))
-    d.ellipse([146 * k, 94 * k, 214 * k, 116 * k], fill=(172, 50, 72, 255))
-    d.polygon([(198 * k, 82 * k), (268 * k, 44 * k), (246 * k, 98 * k)], fill=(112, 152, 100, 255))
-    d.line([200 * k, 84 * k, 256 * k, 56 * k], fill=(150, 188, 136, 255), width=2 * k)
-
-
 FACE_X, FACE_Y, FACE_W, FACE_H = 90, 190, 180, 150
+LIGHT = np.array([-0.5, -0.6, 0.62], np.float32)
+LIGHT /= np.linalg.norm(LIGHT)
+HALF = LIGHT + np.array([0, 0, 1], np.float32)
+HALF /= np.linalg.norm(HALF)
+STYLES = {
+    "pomegranate": dict(dark=(104, 18, 44), mid=(194, 50, 74), light=(244, 128, 122), rim=(255, 150, 130),
+                        blush=(255, 150, 150)),
+    "apricot": dict(dark=(190, 86, 20), mid=(248, 160, 46), light=(255, 218, 124), rim=(255, 236, 170),
+                    blush=(244, 96, 70)),
+}
+MASCOT = os.environ.get("HAYEREN_MASCOT", "pomegranate")
 
 
-def make_face(level, eyes):
+def shade(nx, ny, nz, dark, mid, light, rimc, spec=0.5, rim=0.4, gloss=46):
+    dark, mid, light, rimc = arr(dark), arr(mid), arr(light), arr(rimc)
+    lam = np.clip(nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2], 0, 1) ** 0.85
+    t1 = np.clip(lam * 2, 0, 1)[..., None]
+    t2 = np.clip(lam * 2 - 1, 0, 1)[..., None]
+    col = dark + (mid - dark) * t1 + (light - mid) * t2
+    ndh = np.clip(nx * HALF[0] + ny * HALF[1] + nz * HALF[2], 0, 1)
+    sp = (ndh ** gloss * spec)[..., None]
+    col = col * (1 - sp) + 255.0 * sp
+    rd = np.clip(nx * 0.65 + ny * 0.55, 0, 1)
+    rm = ((1 - nz) ** 2.2 * rim * rd)[..., None]
+    col = col + rimc * rm
+    return np.clip(col, 0, 255)
+
+
+def over(drgb, da, srgb, sa):
+    oa = sa + da * (1 - sa)
+    orgb = (srgb * sa[..., None] + drgb * (da * (1 - sa))[..., None]) / np.maximum(oa, 1e-6)[..., None]
+    return orgb, oa
+
+
+def ellipsoid(h, w, cx, cy, rx, ry, pal, spec=0.5, rim=0.4, gloss=46, tex=None):
+    Y, X = np.mgrid[0:h, 0:w].astype(np.float32)
+    x, y = (X - cx) / rx, (Y - cy) / ry
+    rr = x * x + y * y
+    nz = np.sqrt(np.clip(1 - rr, 0, 1))
+    rgb = shade(x, y, nz, pal["dark"], pal["mid"], pal["light"], pal["rim"], spec, rim, gloss)
+    if tex is not None:
+        rgb = rgb * (1 + tex)[..., None]
+    alpha = np.clip((1 - np.sqrt(rr)) * min(rx, ry) * 0.9, 0, 1).astype(np.float32)
+    return rgb.astype(np.float32), alpha, x, y
+
+
+def to_pil(rgb, a):
+    out = np.dstack([np.clip(rgb, 0, 255), np.clip(a, 0, 1) * 255]).astype(np.uint8)
+    return Image.fromarray(out, "RGBA")
+
+
+def make_head_sprite(style):
+    st = STYLES[style]
+    k = 2
+    w, h = HEAD_W * k, HEAD_H * k
+    rgb = np.zeros((h, w, 3), np.float32)
+    al = np.zeros((h, w), np.float32)
+    Y, X = np.mgrid[0:h, 0:w].astype(np.float32)
+    # мягкая тень на земле
+    sh = 0.32 * np.exp(-(((X - w / 2) / (250.0)) ** 2 + ((Y - 782) / 24.0) ** 2) * 1.6)
+    rgb, al = over(rgb, al, np.full((h, w, 3), (70, 46, 74), np.float32), sh.astype(np.float32))
+    # ножки
+    feet = dict(dark=(86, 14, 38), mid=(150, 34, 58), light=(210, 80, 90), rim=(255, 140, 120))
+    if style == "apricot":
+        feet = dict(dark=(150, 66, 16), mid=(214, 120, 34), light=(250, 180, 90), rim=(255, 226, 150))
+    for fx in (264, 456):
+        r_, a_, _, _ = ellipsoid(h, w, fx, 748, 70, 40, feet, spec=0.35)
+        rgb, al = over(rgb, al, r_, a_)
+    # тело
+    rr_ = np.random.default_rng(5).standard_normal((50, 45)).astype(np.float32)
+    tex = np.asarray(Image.fromarray(((rr_ - rr_.min()) / (rr_.max() - rr_.min()) * 255).astype(np.uint8))
+                     .resize((w, h), Image.BICUBIC), np.float32) / 255.0
+    tex = (tex - 0.5) * 0.07
+    body, ba, x, y = ellipsoid(h, w, HCX * k, HCY * k, HR * k, HR * k, st, spec=0.55, rim=0.45, gloss=40, tex=tex)
+    if style == "apricot":
+        g = np.exp(-((x - (0.10 + 0.07 * y)) / 0.05) ** 2) * (np.abs(y) < 0.92)
+        body = body * (1 - 0.20 * g)[..., None]
+        bl = np.exp(-(((x + 0.40) / 0.55) ** 2 + ((y - 0.15) / 0.60) ** 2))[..., None] * 0.50
+        body = body * (1 - bl) + arr(st["blush"]) * bl
+    else:
+        bl = np.exp(-(((x - 0.1) / 0.8) ** 2 + ((y + 0.85) / 0.25) ** 2))[..., None] * 0.35  # затемнение у короны
+        body = body * (1 - bl) + arr((90, 14, 40)) * bl
+    rgb, al = over(rgb, al, body, ba)
+    # верхушка (корона/черешок и листья)
+    top = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(top)
+    if style == "pomegranate":
+        d.polygon([(150 * k, 106 * k), (153 * k, 66 * k), (167 * k, 92 * k), (180 * k, 52 * k), (193 * k, 92 * k),
+                   (207 * k, 66 * k), (210 * k, 106 * k)], fill=(118, 24, 50, 255))
+        d.polygon([(158 * k, 106 * k), (160 * k, 78 * k), (169 * k, 95 * k), (180 * k, 64 * k), (191 * k, 95 * k),
+                   (200 * k, 78 * k), (202 * k, 106 * k)], fill=(176, 50, 74, 255))
+        d.ellipse([146 * k, 94 * k, 214 * k, 118 * k], fill=(150, 38, 62, 255))
+        d.ellipse([154 * k, 96 * k, 190 * k, 108 * k], fill=(204, 80, 98, 255))
+        d.polygon([(198 * k, 84 * k), (270 * k, 44 * k), (246 * k, 100 * k)], fill=(84, 126, 80, 255))
+        d.polygon([(204 * k, 84 * k), (262 * k, 52 * k), (244 * k, 90 * k)], fill=(128, 178, 112, 255))
+        d.line([204 * k, 86 * k, 258 * k, 58 * k], fill=(168, 210, 150, 255), width=2 * k)
+    else:
+        d.line([180 * k, 108 * k, 190 * k, 62 * k], fill=(104, 70, 46, 255), width=9 * k)
+        d.line([180 * k, 108 * k, 190 * k, 62 * k], fill=(150, 108, 76, 255), width=4 * k)
+        d.polygon([(190 * k, 78 * k), (262 * k, 40 * k), (242 * k, 98 * k)], fill=(84, 126, 80, 255))
+        d.polygon([(196 * k, 78 * k), (254 * k, 50 * k), (240 * k, 90 * k)], fill=(130, 180, 112, 255))
+        d.polygon([(182 * k, 86 * k), (122 * k, 54 * k), (140 * k, 98 * k)], fill=(84, 126, 80, 255))
+        d.polygon([(178 * k, 86 * k), (130 * k, 62 * k), (142 * k, 92 * k)], fill=(130, 180, 112, 255))
+    ta = np.asarray(top, np.float32)
+    rgb, al = over(rgb, al, ta[..., :3], ta[..., 3] / 255.0)
+    im = to_pil(rgb, al).resize((int(HEAD_W * MS), int(HEAD_H * MS)), Image.LANCZOS)
+    return soften(im, 0.45)
+
+
+def make_face(level, eyes, style="pomegranate"):
     """level 0..11 — раскрытие рта; eyes: 0 открыты, 1 моргание, 2 подмигивание."""
     k = 2
+    fw, fh = int(FACE_W * MS), int(FACE_H * MS)
     im = Image.new("RGBA", (FACE_W * k, FACE_H * k), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    ink = (84, 40, 72, 255)
+    ink = (74, 34, 62, 255)
 
     def eye(cx, cy, state):
         if state == "open":
-            d.ellipse([(cx - 11) * k, (cy - 14) * k, (cx + 11) * k, (cy + 14) * k], fill=ink)
-            circ(d, k, cx + 4, cy - 6, 4, (255, 255, 255, 255))
+            d.ellipse([(cx - 12) * k, (cy - 16) * k, (cx + 12) * k, (cy + 16) * k], fill=(54, 26, 52, 255))
+            d.ellipse([(cx - 8) * k, (cy - 2) * k, (cx + 8) * k, (cy + 14) * k], fill=(110, 60, 94, 255))
+            circ(d, k, cx + 4, cy - 7, 5.4, (255, 255, 255, 255))
+            circ(d, k, cx - 4, cy + 7, 2.4, (255, 255, 255, 255))
         else:
             d.arc([(cx - 13) * k, (cy - 10) * k, (cx + 13) * k, (cy + 10) * k], 200, 340, fill=ink, width=5 * k)
     ex1, ex2, ey = 50, 130, 28
-    # румянец
-    circ(d, k, 22, 82, 19, (255, 164, 164, 110))
-    circ(d, k, 158, 82, 19, (255, 164, 164, 110))
-    st1 = "open" if eyes != 1 else "shut"
-    st2 = "open" if eyes == 0 else "shut"
-    eye(ex1, ey, st1)
-    eye(ex2, ey, st2)
-    # брови
-    d.arc([(ex1 - 16) * k, (ey - 36) * k, (ex1 + 16) * k, (ey - 12) * k], 205, 335, fill=(130, 36, 60, 255), width=3 * k)
-    d.arc([(ex2 - 16) * k, (ey - 36) * k, (ex2 + 16) * k, (ey - 12) * k], 205, 335, fill=(130, 36, 60, 255), width=3 * k)
+    eye(ex1, ey, "open" if eyes != 1 else "shut")
+    eye(ex2, ey, "open" if eyes == 0 else "shut")
+    brow = (128, 40, 56, 255) if style == "pomegranate" else (150, 74, 30, 255)
+    d.arc([(ex1 - 16) * k, (ey - 38) * k, (ex1 + 16) * k, (ey - 14) * k], 205, 335, fill=brow, width=3 * k)
+    d.arc([(ex2 - 16) * k, (ey - 38) * k, (ex2 + 16) * k, (ey - 14) * k], 205, 335, fill=brow, width=3 * k)
     cx, cy = 90, 92
     if level == 0:
         d.arc([(cx - 26) * k, (cy - 16) * k, (cx + 26) * k, (cy + 12) * k], 25, 155, fill=ink, width=5 * k)
     else:
         hh = 5 + level * 3.0
         ww = 24 + level * 1.7
-        d.ellipse([(cx - ww / 2) * k, (cy - hh / 2) * k, (cx + ww / 2) * k, (cy + hh / 2) * k], fill=(112, 32, 58, 255))
+        d.ellipse([(cx - ww / 2) * k, (cy - hh / 2) * k, (cx + ww / 2) * k, (cy + hh / 2) * k], fill=(104, 28, 52, 255))
         if hh > 16:
             d.ellipse([(cx - ww * 0.30) * k, (cy + hh * 0.02) * k, (cx + ww * 0.30) * k, (cy + hh / 2 - 1.5) * k],
-                      fill=(236, 116, 126, 255))
-    im = im.resize((int(FACE_W * MS), int(FACE_H * MS)), Image.LANCZOS)
-    return soften(im, 0.6)
+                      fill=(238, 120, 128, 255))
+    top = np.asarray(im.resize((fw, fh), Image.LANCZOS), np.float32)
+    ta = top[..., 3] / 255.0
+    # румянец — мягкий «аэрограф»
+    Y, X = np.mgrid[0:fh, 0:fw].astype(np.float32)
+    ba = np.zeros((fh, fw), np.float32)
+    for bx in (32, 148):
+        ba = np.maximum(ba, 0.55 * np.exp(-(((X - bx * MS) / (15 * MS)) ** 2 + ((Y - 84 * MS) / (10 * MS)) ** 2)))
+    ba = ba * (ss(X / 14) * ss((fw - 1 - X) / 14) * ss(Y / 14) * ss((fh - 1 - Y) / 14)).astype(np.float32)
+    brgb = np.full((fh, fw, 3), STYLES[style]["blush"], np.float32)
+    rgb, a = over(brgb, ba, top[..., :3], ta)
+    return rgb.astype(np.float32), a.astype(np.float32)
 
 
 # --- реквизит сцен ----------------------------------------------------------
@@ -343,6 +437,13 @@ def d_poet(d, k):
     d.line([172 * k, 192 * k, 196 * k, 100 * k], fill=(128, 84, 70, 255), width=7 * k)
     d.line([128 * k, 168 * k, 170 * k, 214 * k], fill=(214, 168, 146, 255), width=7 * k)
     d.line([150 * k, 150 * k, 238 * k, 238 * k], fill=(110, 80, 70, 255), width=3 * k)
+
+
+def make_aril():
+    pal = dict(dark=(110, 8, 38), mid=(196, 30, 64), light=(250, 112, 122), rim=(255, 150, 150))
+    r_, a_, _, _ = ellipsoid(80, 80, 40, 40, 17, 25, pal, spec=0.7, rim=0.3, gloss=30)
+    im = to_pil(r_, a_).rotate(28, resample=Image.BICUBIC).resize((26, 26), Image.LANCZOS)
+    return soften(im, 0.4)
 
 
 def d_seed(d, k):
@@ -388,23 +489,37 @@ def make_petal(ang):
 ARM_L = 112  # половина холста руки (в «дизайн»-единицах); центр холста = плечо
 
 
-def make_arm_variants():
+def make_arm_variants(style):
+    st = STYLES[style]
     k = 2
-    size = 2 * ARM_L
-    base = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
-    d = ImageDraw.Draw(base)
+    size = 2 * ARM_L * k
     c = ARM_L * k
-    d.rounded_rectangle([c - 11 * k, c - 11 * k, c + 11 * k, c + 88 * k], radius=11 * k, fill=(172, 48, 72, 255))
-    circ(d, k, ARM_L, ARM_L, 13, (172, 48, 72, 255))
-    circ(d, k, ARM_L, ARM_L + 97, 16, (250, 190, 168, 255))
-    circ(d, k, ARM_L - 4, ARM_L + 92, 5, (255, 226, 210, 255))
+    rgb = np.zeros((size, size, 3), np.float32)
+    al = np.zeros((size, size), np.float32)
+    Y, X = np.mgrid[0:size, 0:size].astype(np.float32)
+    rad, ln = 15 * k, 40 * k
+    py = np.clip(Y, c, c + ln)
+    dx, dy = X - c, Y - py
+    v = np.hypot(dx, dy) / rad
+    nz = np.sqrt(np.clip(1 - v * v, 0, 1))
+    pal = dict(dark=tuple(int(x * 0.9) for x in st["dark"]), mid=st["mid"], light=st["light"], rim=st["rim"])
+    arm = shade(dx / rad, dy / rad, nz, pal["dark"], pal["mid"], pal["light"], pal["rim"], spec=0.35, rim=0.3)
+    aa = np.clip((1 - v) * rad * 0.9, 0, 1).astype(np.float32)
+    rgb, al = over(rgb, al, arm.astype(np.float32), aa)
+    glove = dict(dark=(214, 172, 160), mid=(255, 238, 226), light=(255, 253, 248), rim=(255, 220, 200))
+    # большой пальчик и «варежка»
+    tr, ta, _, _ = ellipsoid(size, size, c - 18 * k, c + ln + 2 * k, 10 * k, 11 * k, glove, spec=0.3)
+    rgb, al = over(rgb, al, tr, ta)
+    hr_, ha_, _, _ = ellipsoid(size, size, c, c + ln + 10 * k, 24 * k, 22 * k, glove, spec=0.4, rim=0.3)
+    rgb, al = over(rgb, al, hr_, ha_)
+    base = to_pil(rgb, al)
     right, left = [], []
     for ang in range(0, 181, 6):
         im = base.rotate(ang, resample=Image.BICUBIC, center=(c, c))
-        im = im.resize((int(size * MS), int(size * MS)), Image.LANCZOS)
-        rgb, a = soften(im, 0.6)
-        right.append((rgb, a))
-        left.append((rgb[:, ::-1].copy(), a[:, ::-1].copy()))
+        im = im.resize((int(2 * ARM_L * MS), int(2 * ARM_L * MS)), Image.LANCZOS)
+        r_, a_ = soften(im, 0.45)
+        right.append((r_, a_))
+        left.append((r_[:, ::-1].copy(), a_[:, ::-1].copy()))
     return right, left
 
 
@@ -452,20 +567,23 @@ def make_bg_assets():
     A["theater_base"] = (cur * (1 - floor) + wood * floor).astype(np.float32)
     cone = np.exp(-(((XX - 700) / (110 + 0.5 * YY)) ** 2)) * (1 - np.clip(YY / 760.0, 0, 1)) ** 0.5
     A["theater_cone"] = (cone[..., None] * arr((255, 232, 196)) * 0.55).astype(np.float32)
-    A["dust"] = soft_disc(5, 1.0) * 0.6
+    A["dust"] = soft_disc(3, 1.0) * 0.6
     A["dust_p"] = [dict(x=float(rr.uniform(430, 980)), y=float(rr.uniform(0, H)), sp=float(rr.uniform(6, 18)),
-                        sw=float(rr.uniform(6, 20)), ph=float(rr.uniform(0, 6.28))) for _ in range(30)]
-    # боке (глава «Связка») и огни праздника
-    top, bot = arr((255, 228, 206)), arr((242, 160, 172))
-    b = np.repeat(top * (1 - g) + bot * g, W, axis=1)
-    glow = np.exp(-(((XX - 760) / 520.0) ** 2 + ((YY - 260) / 330.0) ** 2))[..., None]
-    A["bokeh_base"] = (b * (1 - 0.35 * glow) + arr((255, 244, 224)) * 0.35 * glow).astype(np.float32)
-    A["bokeh_spr"] = [soft_disc(r, 0.55) * al for r, al in ((26, 0.34), (44, 0.26), (70, 0.2))]
-    cols = [arr((255, 236, 200)), arr((255, 190, 190)), arr((255, 214, 150)), arr((236, 176, 224))]
-    A["bokeh_p"] = [dict(k=int(rr.integers(0, 3)), c=cols[int(rr.integers(0, 4))], x=float(rr.uniform(0, W)),
-                         y=float(rr.uniform(0, H + 200)), sp=float(rr.uniform(8, 26)), sw=float(rr.uniform(10, 40)),
-                         ph=float(rr.uniform(0, 6.28))) for _ in range(26)]
-    A["lantern"] = soft_disc(30, 0.6) * 0.65
+                        sw=float(rr.uniform(6, 20)), ph=float(rr.uniform(0, 6.28))) for _ in range(12)]
+    # тёплые лучи и искорки (глава «Связка»)
+    top, bot = arr((255, 230, 208)), arr((244, 168, 176))
+    b_ = np.repeat(top * (1 - g) + bot * g, W, axis=1)
+    A["light_base"] = b_.astype(np.float32)
+
+    def star(r):
+        n = int(r * 2 + 4)
+        yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
+        x, y = (xx - n / 2) / r, (yy - n / 2) / r
+        return (np.exp(-np.abs(x) * np.abs(y) * 22) * np.exp(-(x * x + y * y) * 1.6)).astype(np.float32)
+    A["stars"] = [star(r) for r in (10, 16, 24)]
+    A["star_p"] = [dict(k=int(rr.integers(0, 3)), x=float(rr.uniform(0, W)), y=float(rr.uniform(0, H)),
+                        sp=float(rr.uniform(4, 12)), ph=float(rr.uniform(0, 6.28)), tw=float(rr.uniform(0.8, 2.2)))
+                   for _ in range(22)]
     return A
 
 
@@ -511,6 +629,27 @@ def text_card(lines_spec, w, pad=28, radius=34, fill=190):
         d.text((p + pad, y), t, font=f, fill=c)
         y += lh
     return to_np(Image.alpha_composite(bg, txt)), (p, h)
+
+
+# --------------------------------------------------------------------------
+# ГАЛЕРЕЯ: ваши фото/кадры (папка assets рядом со скриптом или HAYEREN_ASSETS)
+# --------------------------------------------------------------------------
+def load_gallery():
+    d = os.environ.get("HAYEREN_ASSETS", os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets"))
+    if not os.path.isdir(d):
+        return [], None
+    ww, hh = FILM_W - 44, FILM_H - 72
+    mask = Image.new("L", (ww, hh), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, ww - 1, hh - 1], radius=12, fill=255)
+    mask = np.asarray(mask.filter(ImageFilter.GaussianBlur(0.8)), np.float32) / 255.0
+    out = []
+    for fn in sorted(os.listdir(d)):
+        if fn.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            im = Image.open(os.path.join(d, fn)).convert("RGB")
+            sc = max(ww * 1.18 / im.width, hh * 1.18 / im.height)
+            im = im.resize((int(im.width * sc), int(im.height * sc)), Image.LANCZOS)
+            out.append(np.asarray(im, np.float32))
+    return out, mask
 
 
 # --------------------------------------------------------------------------
@@ -723,7 +862,7 @@ def setup(lang, work):
     # пузыри букв (глава 2)
     bubbles = []
     for j, (g, snd) in enumerate(zip(["Ն", "ու", "ռ"], ui["sounds"])):
-        bg, p = pill((128, 128), 64, 190, blur=3, pad=8)
+        bg, p = pill((124, 142), 26, 225, blur=2, pad=8)
         t = Image.new("RGBA", bg.size, (0, 0, 0, 0))
         dd = ImageDraw.Draw(t)
         f = fnt(70, True)
@@ -731,7 +870,7 @@ def setup(lang, work):
         dd.text(((bg.size[0] - w) / 2, p + 14), g, font=f, fill=(96, 58, 100, 255))
         f2 = fnt(26)
         w2 = dd.textlength(snd, font=f2)
-        dd.text(((bg.size[0] - w2) / 2, p + 96), snd, font=f2, fill=(166, 98, 84, 255))
+        dd.text(((bg.size[0] - w2) / 2, p + 100), snd, font=f2, fill=(166, 98, 84, 255))
         rgb, a = to_np(Image.alpha_composite(bg, t))
         bubbles.append(dict(rgb=rgb, a=a, x=420 + j * 150, y=46 - p + 0))
 
@@ -775,15 +914,15 @@ def setup(lang, work):
     button = dict(rgb=b_rgb, a=b_a, x=48, y=H - 34 - 120 - 90 - 30)
 
     # лицо: 12 уровней × 3 состояния глаз
-    faces = {(lv, e): make_face(lv, e) for lv in range(12) for e in range(3)}
-    arms_r, arms_l = make_arm_variants()
+    faces = {(lv, e): make_face(lv, e, MASCOT) for lv in range(12) for e in range(3)}
+    arms_r, arms_l = make_arm_variants(MASCOT)
     assets = make_bg_assets()
     # реквизит
-    head = sprite(HEAD_W, HEAD_H, d_head, 0.8, MS)
+    head = make_head_sprite(MASCOT)
     tree = sprite(200, 250, d_tree, 1.0)
     film_base = sprite(FILM_W, FILM_H, d_film, 1.0)
     poet = sprite(FILM_W, FILM_H, d_poet, 0.9)
-    seed = sprite(24, 24, d_seed, 0.6)
+    seed = make_aril()
     garland = sprite(780, 120, d_garland, 0.9)
 
     # пятно сока: «карта времени прихода»
@@ -809,10 +948,11 @@ def setup(lang, work):
     seeds = [dict(x=float(RNG.uniform(-60, 60)), ph=float(RNG.uniform(0, 1)), sp=float(RNG.uniform(0.10, 0.2)),
                   dx=float(RNG.uniform(-260, 120)), am=float(RNG.uniform(10, 30))) for _ in range(26)]
 
+    gallery, gmask = load_gallery()
     slog_i = next(i for i, (ch, _, _) in enumerate(segs) if ch == 5)
     btn_i = len(segs) - 1
     speak_s = np.convolve(mouth / 11.0, np.ones(7) / 7, mode="same")
-    G.update(dict(slog_i=slog_i, btn_i=btn_i, speak_s=speak_s, arms_r=arms_r, arms_l=arms_l, assets=assets))
+    G.update(dict(gallery=gallery, gmask=gmask, slog_i=slog_i, btn_i=btn_i, speak_s=speak_s, arms_r=arms_r, arms_l=arms_l, assets=assets))
     G.update(dict(lang=lang, ui=ui, dur=dur, N=n, SC=SC, subs=subs, wordcard=wordcard, chips=chips, bubbles=bubbles,
                   film=(film_rgb, film_a, fw_, fp_), fest=(fest_rgb, fest_a, fsw_, fsp_), slogan=slogan, button=button,
                   faces=faces, head=head, tree=tree, film_base=film_base, poet=poet, seed=seed, garland=garland,
@@ -823,7 +963,7 @@ def setup(lang, work):
 # --------------------------------------------------------------------------
 # КАДР
 # --------------------------------------------------------------------------
-BG_KIND = ["mountain", "parchment", "theater", "bokeh", "mountain", "mountain"]
+BG_KIND = ["mountain", "parchment", "theater", "light", "mountain", "mountain"]
 PANS = {0: (-0.9, -0.1), 4: (0.9, 0.1), 5: (0.0, 0.5)}  # «камера»: панорама по ходу главы
 RANGES = dict(far=60, ararat=90, mid=120, near=140, fg=150)
 CW = 1.0  # длительность перекрёстного перехода фонов
@@ -887,10 +1027,6 @@ def bg_mountain(si, t):
     if si == 4:  # праздничная гирлянда и фонари
         rgb, a = G["garland"]
         blit(img, rgb, a, int(500 + 5 * math.sin(t * 0.8)), 0)
-        A = G["assets"]
-        for j, x in enumerate((560, 700, 860, 1010, 1140)):
-            fl = 0.75 + 0.25 * math.sin(t * 3 + j * 1.7)
-            blit(img, arr((255, 214, 140)), A["lantern"], x - 30, 120 + 18 * (j % 2), fl)
         frgb, fa, fw_, fp_ = G["fest"]
         blit(img, frgb, fa, 560 - fp_, 200, float(ss((t - sc["t0"] - 1.0) / 1.0)))
     return img
@@ -915,21 +1051,26 @@ def bg_theater(t):
     return img
 
 
-def bg_bokeh(t):
+def bg_light(t):
     A = G["assets"]
-    img = A["bokeh_base"].copy()
-    for b in A["bokeh_p"]:
-        spr = A["bokeh_spr"][b["k"]]
-        y = (b["y"] - b["sp"] * t) % (H + 240) - 120
-        x = b["x"] + b["sw"] * math.sin(t * 0.5 + b["ph"])
-        blit(img, b["c"], spr, int(x - spr.shape[1] / 2), int(y - spr.shape[0] / 2), 0.8 + 0.2 * math.sin(t + b["ph"]))
+    img = A["light_base"].copy()
+    u = XX * 0.62 + YY * 0.78
+    beams = np.zeros((H, W), np.float32)
+    for c0, wd, sp in ((300, 70, 18), (640, 110, -14), (980, 80, 22), (1300, 120, -10)):
+        beams += np.exp(-(((u - c0 - sp * t) % 1500 - 750 + 750 - 750) / wd) ** 2)
+    img = img + beams[..., None] * arr((255, 240, 210)) * 0.10
+    for st_ in A["star_p"]:
+        spr = A["stars"][st_["k"]]
+        y = (st_["y"] - st_["sp"] * t) % (H + 60) - 30
+        tw = 0.5 + 0.5 * math.sin(t * st_["tw"] + st_["ph"])
+        blit(img, arr((255, 246, 224)), spr, int(st_["x"] - spr.shape[1] / 2), int(y - spr.shape[0] / 2), 0.25 + 0.75 * tw)
     return img
 
 
 def render_bg(i, t):
     k = BG_KIND[i]
     return bg_mountain(i, t) if k == "mountain" else {"parchment": bg_parchment, "theater": bg_theater,
-                                                      "bokeh": bg_bokeh}[k](t)
+                                                      "light": bg_light}[k](t)
 
 
 def bg_at(t):
@@ -1039,17 +1180,35 @@ def frame(i):
         fx, fy = 470, 100
         rgb, a = G["film_base"]
         blit(img, rgb, a, fx, fy, v2)
-        pstain = float(np.clip((t - SC[2]["t0"] - 3.5) / 8.0, 0, 1)) * 0.82
-        T = G["stain_T"]
-        sa = ss((pstain - T) / 0.10) * 0.92
-        sa = np.asarray(Image.fromarray((sa * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(2.2)), np.float32) / 255.0
-        sh_, sw_ = sa.shape
-        col = np.empty((sh_, sw_, 3), np.float32)
-        dark = ss((pstain - G["stain_R"]) / 0.9)[..., None]
-        col[:] = mix(arr((214, 52, 72)), arr((150, 24, 54)), dark)
-        blit(img, col, sa.astype(np.float32), fx + 22, fy + 36, v2)
-        rgb, a = G["poet"]
-        blit(img, rgb, a, fx, fy, v2)
+        if G["gallery"]:  # ваши фото и кадры: плавная смена с лёгким «Кеном Бёрнсом»
+            gl, ww, hh = G["gallery"], FILM_W - 44, FILM_H - 72
+            n = len(gl)
+            ta, tb = SC[2]["t0"] + 0.4, SC[2]["t1"] - 0.4
+            pos = float(np.clip((t - ta) / (tb - ta), 0, 0.9999)) * n
+            i0 = int(pos)
+            f_ = pos - i0
+
+            def crop(ix, ff):
+                im = gl[ix]
+                ox = int((im.shape[1] - ww) * (ff if ix % 2 == 0 else 1 - ff))
+                oy = int((im.shape[0] - hh) * 0.5)
+                return im[oy:oy + hh, ox:ox + ww]
+            cur_ = crop(i0, f_)
+            if i0 < n - 1:
+                cur_ = mix(cur_, crop(i0 + 1, 0.0), float(ss((f_ - 0.82) / 0.18)))
+            blit(img, cur_, G["gmask"], fx + 22, fy + 36, v2)
+        else:  # иллюстрация по умолчанию: силуэт ашуга и растекающийся сок
+            pstain = float(np.clip((t - SC[2]["t0"] - 3.5) / 8.0, 0, 1)) * 0.82
+            T = G["stain_T"]
+            sa = ss((pstain - T) / 0.10) * 0.92
+            sa = np.asarray(Image.fromarray((sa * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(2.2)), np.float32) / 255.0
+            sh_, sw_ = sa.shape
+            col = np.empty((sh_, sw_, 3), np.float32)
+            dark = ss((pstain - G["stain_R"]) / 0.9)[..., None]
+            col[:] = mix(arr((214, 52, 72)), arr((150, 24, 54)), dark)
+            blit(img, col, sa.astype(np.float32), fx + 22, fy + 36, v2)
+            rgb, a = G["poet"]
+            blit(img, rgb, a, fx, fy, v2)
         frgb, fa, fw_, fp_ = G["film"]
         blit(img, frgb, fa, fx + (FILM_W - fw_) // 2 - fp_, fy + FILM_H + 6, v2)
 
