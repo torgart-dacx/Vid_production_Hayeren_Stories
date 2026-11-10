@@ -2,7 +2,7 @@
 """Армянские слова: «Նուռ» (гранат) — говорящий гранат рассказывает историю слова.
 
 Использование:  make_video.py ru|es OUT.mp4 WORKDIR [--preview]
-Голос синтезируется локально (tts_espeak.py). Если положить рядом готовые записи
+Голос: нейросетевой Piper (tts_piper.py, модели — ../../voices.sh), запасной — eSpeak (tts_espeak.py). Если положить рядом готовые записи
 диктора WORKDIR/ru_01.wav, ru_02.wav ... (по числу реплик), они будут использованы
 вместо синтеза: тайминги и синхронизация губ пересчитаются автоматически.
 """
@@ -17,6 +17,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 import tts_espeak
+import tts_piper
 
 W, H, FPS = 1280, 720, 24
 WM = W + 300
@@ -490,8 +491,11 @@ def build_timeline(lang, work):
                 sr = wf.getframerate()
             y = np.interp(np.arange(0, len(y), sr / tts_espeak.SR), np.arange(len(y)), y).astype(np.float32)
         else:
-            x = tts_espeak.synth(text, ui["voice"], ui["wpm"], ui["pitch"])
-            y = tts_espeak.soften(x)
+            if tts_piper.available(lang):
+                y = tts_piper.soften(tts_piper.synth(text, lang))
+            else:  # запасной синтетический голос
+                x = tts_espeak.synth(text, ui["voice"], ui["wpm"], ui["pitch"])
+                y = tts_espeak.soften(x)
         segs.append((ch, text, y))
     t = 1.8
     starts, prev = [], None

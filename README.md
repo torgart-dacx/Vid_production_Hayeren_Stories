@@ -24,7 +24,7 @@
 
 ```bash
 cd episodes/001-nur-granat
-pip install numpy pillow espeakng-loader
+pip install numpy pillow espeakng-loader piper-tts
 python3 make_video.py ru nur_granat_ru.mp4 work     # русская версия
 python3 make_video.py es nur_granada_es.mp4 work    # испанская версия
 PREV=4,30,60 python3 make_video.py ru prev work --preview   # только контрольные кадры
@@ -33,10 +33,18 @@ PREV=4,30,60 python3 make_video.py ru prev work --preview   # только ко�
 Рабочая папка `work/` получает промежуточные файлы. Время рендера ≈ 3–4 мин на версию.
 
 ## Голос
-По умолчанию голос синтезируется локально через eSpeak NG — это запасной вариант,
-звучит синтетически. Чтобы использовать настоящую запись диктора, положите в `work/`
-по одному WAV на реплику: `ru_01.wav … ru_14.wav` (`es_01.wav …`). Тайминги глав,
-субтитры и движение рта подстроятся под длину и громкость записей.
+Основной — нейросетевой Piper (мужские голоса: `ru_RU-denis-medium`, `es_MX-claude-high`).
+Модели весят ~60 МБ каждая и в репозиторий не входят: скачайте `./voices.sh`
+(нужен доступ к `huggingface.co` и `us.aws.cdn.hf.co`), затем:
+
+```bash
+HAYEREN_VOICES=$PWD/voices python3 make_video.py ru out.mp4 work
+HAYEREN_VOICE_RU=ru_RU-dmitri-medium HAYEREN_VOICES=$PWD/voices python3 make_video.py ru out.mp4 work   # другой голос
+```
+Без моделей используется запасной синтетический голос eSpeak NG.
+Чтобы использовать запись настоящего диктора, положите в `work/` по одному WAV на реплику:
+`ru_01.wav … ru_14.wav` (`es_01.wav …`). Тайминги глав, субтитры и движение рта
+подстроятся под длину и громкость записей.
 
 ## Новый выпуск
 Скопируйте папку выпуска, замените реплики `LINES`, реквизит и палитры в `make_video.py`
